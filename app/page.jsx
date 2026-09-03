@@ -1,14 +1,12 @@
 'use client';
 
 import React, { useState, useRef, useEffect } from 'react';
-import { GoogleGenAI, Type } from '@google/genai';
 import { jsPDF } from 'jspdf';
 import { ShieldAlert, Video, Mic } from 'lucide-react';
 
 export default function GuardCamHome() {
-  const [apiKey, setApiKey] = useState('');
   const [isMonitoring, setIsMonitoring] = useState(false);
-  const [status, setStatus] = useState('Idle - Enter Key & Start Call Monitor');
+  const [status, setStatus] = useState('Idle - Click Monitor Stream to Start');
   const [scamData, setScamData] = useState(null);
   const [capturedFrame, setCapturedFrame] = useState(null);
   const [transcriptText, setTranscriptText] = useState('');
@@ -20,11 +18,6 @@ export default function GuardCamHome() {
 
   // 1. CAPTURE LIVE SCREEN & SYSTEM AUDIO
   const startCallMonitoring = async () => {
-    if (!apiKey) {
-      alert('Please enter your Gemini API Key first.');
-      return;
-    }
-
     try {
       const stream = await navigator.mediaDevices.getDisplayMedia({
         video: { displaySurface: 'browser' },
@@ -83,11 +76,11 @@ export default function GuardCamHome() {
     setStatus('Monitoring Stopped.');
   };
 
-  // 3. UNIVERSAL FRAUD & DEEPFAKE MULTIMODAL SCANNER
+  // 3. CALL INTERNAL API ROUTE
   const analyzeCallStream = async () => {
-    if (!apiKey || !videoRef.current || !canvasRef.current) return;
+    if (!videoRef.current || !canvasRef.current) return;
 
-    setStatus('🔍 Gemini Inspecting Feed for Fraud & Synthetic Media...');
+    setStatus('🔍 GuardCam Server Inspecting Feed...');
 
     const canvas = canvasRef.current;
     const video = videoRef.current;
@@ -100,77 +93,30 @@ export default function GuardCamHome() {
     const base64Data = canvas.toDataURL('image/jpeg', 0.6).split(',')[1];
     setCapturedFrame(canvas.toDataURL('image/jpeg', 0.6));
 
-    // Supported model fallback list
-    const candidateModels = ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-1.5-flash'];
-    const ai = new GoogleGenAI({ apiKey });
+    try {
+      const response = await fetch('/api/analyze', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ base64Data, transcriptText }),
+      });
 
-    const promptText = `You are a real-time Cybersecurity and AI Deepfake Defense Scanner.
-    
-    Examine this video frame and live audio transcript: "${transcriptText}".
+      const result = await response.json();
 
-    DETERMINE IF THIS FEEDS SHOWS ANY OF THE FOLLOWING THREATS:
-    1. AI Deepfake / Synthetic Face: Unnatural lip-sync, blurriness around edges, distorted facial features, strange lighting.
-    2. Impersonation Scam: Fake police, law enforcement, bank officials, government agents, tech support, or authority figures.
-    3. Social Engineering / Coercion: Demanding urgent money transfers, gift cards, passwords, OTPs, Aadhaar/SSN verification, or threats of legal/police action.
-
-    CRITICAL RULE FOR DEMONSTRATIONS:
-    If there is ANY presence of uniforms, authority badges, financial demands, urgent threats, synthetic visuals, or suspect speech, mark isScam: true and set threatScore above 80.`;
-
-    const payload = {
-      contents: [
-        { inlineData: { mimeType: 'image/jpeg', data: base64Data } },
-        promptText,
-      ],
-      config: {
-        responseMimeType: 'application/json',
-        responseSchema: {
-          type: Type.OBJECT,
-          properties: {
-            isScam: { type: Type.BOOLEAN },
-            threatScore: { type: Type.NUMBER },
-            scamCategory: { type: Type.STRING },
-            detectedVisuals: {
-              type: Type.ARRAY,
-              items: { type: Type.STRING },
-            },
-            incidentSummary: { type: Type.STRING },
-          },
-          required: [
-            'isScam',
-            'threatScore',
-            'scamCategory',
-            'detectedVisuals',
-            'incidentSummary',
-          ],
-        },
-      },
-    };
-
-    let success = false;
-    for (const modelName of candidateModels) {
-      try {
-        const response = await ai.models.generateContent({
-          model: modelName,
-          ...payload,
-        });
-
-        const result = JSON.parse(response.text);
-        setScamData(result);
-
-        if (result.isScam && result.threatScore > 50) {
-          setStatus(`🚨 ALERT: ${result.scamCategory} (${result.threatScore}%)`);
-        } else {
-          setStatus('✅ Feed Verified Safe - No AI Threats Detected');
-        }
-        success = true;
-        break;
-      } catch (err) {
-        console.warn(`Model ${modelName} failed, trying fallback...`, err);
+      if (!response.ok) {
+        setStatus('Scan Error: ' + (result.error || 'Failed to analyze frame.'));
+        return;
       }
-    }
 
-    if (!success) {
-      setStatus('Scan temporary busy. Retrying in next interval or tap Manual Scan.');
+      setScamData(result);
+
+      if (result.isScam && result.threatScore > 50) {
+        setStatus(`🚨 ALERT: ${result.scamCategory} (${result.threatScore}%)`);
+      } else {
+        setStatus('✅ Feed Verified Safe - No AI Threats Detected');
+      }
+    } catch (err) {
+      console.error(err);
+      setStatus('Scan Failed: ' + err.message);
     }
   };
 
@@ -183,7 +129,7 @@ export default function GuardCamHome() {
     return () => {
       if (intervalRef.current) clearInterval(intervalRef.current);
     };
-  }, [isMonitoring, apiKey, transcriptText]);
+  }, [isMonitoring, transcriptText]);
 
   // 4. EXPORT COMPLAINT DOSSIER
   const downloadComplaintPDF = () => {
@@ -226,18 +172,6 @@ export default function GuardCamHome() {
         </h1>
         <p>Real-Time Deepfake & Fraud Detection Engine</p>
       </header>
-
-      {/* API Key */}
-      <div style={{ background: '#f5f5f5', padding: '15px', borderRadius: '8px', marginBottom: '15px' }}>
-        <label style={{ fontWeight: 'bold' }}>Gemini API Key:</label>
-        <input
-          type="password"
-          placeholder="Paste AI Studio Key Here"
-          value={apiKey}
-          onChange={(e) => setApiKey(e.target.value)}
-          style={{ width: '100%', padding: '10px', marginTop: '5px', borderRadius: '4px', border: '1px solid #ccc' }}
-        />
-      </div>
 
       {/* Viewport */}
       <div style={{ position: 'relative', width: '100%', height: '320px', background: '#000', borderRadius: '12px', overflow: 'hidden' }}>
