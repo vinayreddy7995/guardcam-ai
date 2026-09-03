@@ -88,7 +88,7 @@ export default function GuardCamHome() {
     setStatus('Monitoring Stopped.');
   };
 
-  // 3. GEMINI MULTIMODAL INSPECTION (USING GEMINI-3.6-FLASH)
+  // 3. GEMINI MULTIMODAL INSPECTION (GEMINI-2.5-FLASH-LITE FOR RATE LIMIT PROTECTION)
   const analyzeCallStream = async () => {
     if (!apiKey || !videoRef.current || !canvasRef.current) return;
 
@@ -108,7 +108,7 @@ export default function GuardCamHome() {
     try {
       const ai = new GoogleGenAI({ apiKey });
       const response = await ai.models.generateContent({
-        model: 'gemini-3.6-flash', // Updated model string
+        model: 'gemini-2.5-flash-lite', // Switch to flash-lite for higher quota allowance
         contents: [
           {
             inlineData: {
@@ -159,11 +159,12 @@ export default function GuardCamHome() {
     }
   };
 
+  // Run periodic loop every 15 seconds to remain safely within the Free Tier RPM limits
   useEffect(() => {
     if (isMonitoring) {
       intervalRef.current = setInterval(() => {
         analyzeCallStream();
-      }, 6000);
+      }, 15000);
     }
     return () => {
       if (intervalRef.current) clearInterval(intervalRef.current);
