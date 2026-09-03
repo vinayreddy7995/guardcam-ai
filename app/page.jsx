@@ -18,7 +18,7 @@ export default function GuardCamHome() {
   const intervalRef = useRef(null);
   const recognitionRef = useRef(null);
 
-  // 1. CAPTURE LIVE WHATSAPP/ZOOM SCREEN & SYSTEM AUDIO
+  // 1. CAPTURE LIVE WHATSAPP/ZOOM/YOUTUBE SCREEN & SYSTEM AUDIO
   const startCallMonitoring = async () => {
     if (!apiKey) {
       alert('Please enter your Gemini API Key first.');
@@ -88,11 +88,11 @@ export default function GuardCamHome() {
     setStatus('Monitoring Stopped.');
   };
 
-  // 3. GEMINI 2.5 FLASH MULTIMODAL INSPECTION
+  // 3. GEMINI MULTIMODAL INSPECTION (FIXED TO GEMINI-2.0-FLASH)
   const analyzeCallStream = async () => {
     if (!apiKey || !videoRef.current || !canvasRef.current) return;
 
-    setStatus('🔍 Gemini 2.5 Flash Inspecting Call Feed & Audio...');
+    setStatus('🔍 Gemini Inspecting Call Feed & Audio...');
 
     const canvas = canvasRef.current;
     const video = videoRef.current;
@@ -108,7 +108,7 @@ export default function GuardCamHome() {
     try {
       const ai = new GoogleGenAI({ apiKey });
       const response = await ai.models.generateContent({
-        model: 'gemini-2.5-flash',
+        model: 'gemini-2.0-flash', // Updated to supported model name
         contents: [
           {
             inlineData: {
@@ -116,11 +116,9 @@ export default function GuardCamHome() {
               data: base64Data,
             },
           },
-          `Analyze this live video call snapshot and accompanying speech transcript: "${transcriptText}".
-          Determine if this is a Fake Police / Digital Arrest / Vishing Fraud call.
-          Look for:
-          1. VISUAL: Costume uniforms, fake badges, digital police station backdrops.
-          2. AUDIO: Words like "digital arrest", "police station", "verify Aadhaar", "drug parcel", "transfer money".`,
+          `Analyze this video call snapshot and speech transcript: "${transcriptText}".
+          Determine if this indicates a Fake Police / Digital Arrest / Vishing Fraud call.
+          If you see a police uniform, badge, official authority backdrop, or detect words like "digital arrest", "police station", "verify Aadhaar", "drug parcel", or money demands, treat it as high risk (isScam: true, threatScore: 85+).`,
         ],
         config: {
           responseMimeType: 'application/json',
@@ -172,7 +170,7 @@ export default function GuardCamHome() {
     };
   }, [isMonitoring, apiKey, transcriptText]);
 
-  // EXPORT DOSSIER
+  // 4. EXPORT COMPLAINT PDF DOSSIER
   const downloadComplaintPDF = () => {
     if (!scamData) return;
 
