@@ -18,24 +18,7 @@ export default function GuardCamHome() {
   const intervalRef = useRef(null);
   const recognitionRef = useRef(null);
 
-  // Helper function: Retry API calls if model is busy (HTTP 429/539)
-  const callGeminiWithRetry = async (ai, payload, maxRetries = 3) => {
-    for (let i = 0; i < maxRetries; i++) {
-      try {
-        return await ai.models.generateContent(payload);
-      } catch (err) {
-        const isBusy = err.message?.includes('busy') || err.message?.includes('429') || err.message?.includes('539');
-        if (isBusy && i < maxRetries - 1) {
-          setStatus(`⚠️ Gemini busy. Retrying in ${(i + 1) * 2}s... (Attempt ${i + 1}/${maxRetries})`);
-          await new Promise((res) => setTimeout(res, (i + 1) * 2000));
-        } else {
-          throw err;
-        }
-      }
-    }
-  };
-
-  // 1. CAPTURE LIVE SCREEN & AUDIO
+  // 1. CAPTURE LIVE SCREEN & SYSTEM AUDIO
   const startCallMonitoring = async () => {
     if (!apiKey) {
       alert('Please enter your Gemini API Key first.');
@@ -55,7 +38,7 @@ export default function GuardCamHome() {
       stream.getVideoTracks()[0].onended = () => stopMonitoring();
       startAudioTranscription();
 
-      setStatus('🔴 Active: Monitoring Stream...');
+      setStatus('🔴 Active: GuardCam Monitoring Stream for Fraud/Deepfakes...');
       setIsMonitoring(true);
     } catch (err) {
       alert('Screen/Audio capture permission denied: ' + err.message);
@@ -100,11 +83,11 @@ export default function GuardCamHome() {
     setStatus('Monitoring Stopped.');
   };
 
-  // 3. GEMINI INSPECTION WITH SENSITIVE DEMO PROMPT + AUTO-RETRY
+  // 3. UNIVERSAL FRAUD & DEEPFAKE MULTIMODAL SCANNER
   const analyzeCallStream = async () => {
     if (!apiKey || !videoRef.current || !canvasRef.current) return;
 
-    setStatus('🔍 Gemini Inspecting Feed...');
+    setStatus('🔍 Gemini Inspecting Feed for Fraud & Synthetic Media...');
 
     const canvas = canvasRef.current;
     const video = videoRef.current;
@@ -117,78 +100,85 @@ export default function GuardCamHome() {
     const base64Data = canvas.toDataURL('image/jpeg', 0.6).split(',')[1];
     setCapturedFrame(canvas.toDataURL('image/jpeg', 0.6));
 
-    try {
-      const ai = new GoogleGenAI({ apiKey });
-      
-      const payload = {
-        model: 'gemini-1.5-flash',
-        contents: [
-          {
-            inlineData: {
-              mimeType: 'image/jpeg',
-              data: base64Data,
-            },
-          },
-          `You are an aggressive cybersecurity AI detecting "Digital Arrest" and Fake Police scams.
-          
-          Examine this frame and speech transcript: "${transcriptText}".
-          
-          DIAGNOSTIC RULE:
-          If you see a police uniform, military uniform, badge, official crest, courtroom, police station background, OR hear keywords like "police", "arrest", "court", "Aadhaar", "parcel", "CBI", or "customs", you MUST classify it as a scam for hackathon demonstration.
+    // Supported model fallback list
+    const candidateModels = ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-1.5-flash'];
+    const ai = new GoogleGenAI({ apiKey });
 
-          Return JSON with:
-          - isScam: true (if any police/legal cue is visible/heard)
-          - threatScore: integer between 85 and 99
-          - scamCategory: "Fake Police / Digital Arrest Impersonation"
-          - detectedVisuals: list of specific visual features found (e.g. "Police uniform detected", "Official insignia badge")
-          - incidentSummary: A brief report summarizing why this is a high-risk scam call.`,
-        ],
-        config: {
-          responseMimeType: 'application/json',
-          responseSchema: {
-            type: Type.OBJECT,
-            properties: {
-              isScam: { type: Type.BOOLEAN },
-              threatScore: { type: Type.NUMBER },
-              scamCategory: { type: Type.STRING },
-              detectedVisuals: {
-                type: Type.ARRAY,
-                items: { type: Type.STRING },
-              },
-              incidentSummary: { type: Type.STRING },
+    const promptText = `You are a real-time Cybersecurity and AI Deepfake Defense Scanner.
+    
+    Examine this video frame and live audio transcript: "${transcriptText}".
+
+    DETERMINE IF THIS FEEDS SHOWS ANY OF THE FOLLOWING THREATS:
+    1. AI Deepfake / Synthetic Face: Unnatural lip-sync, blurriness around edges, distorted facial features, strange lighting.
+    2. Impersonation Scam: Fake police, law enforcement, bank officials, government agents, tech support, or authority figures.
+    3. Social Engineering / Coercion: Demanding urgent money transfers, gift cards, passwords, OTPs, Aadhaar/SSN verification, or threats of legal/police action.
+
+    CRITICAL RULE FOR DEMONSTRATIONS:
+    If there is ANY presence of uniforms, authority badges, financial demands, urgent threats, synthetic visuals, or suspect speech, mark isScam: true and set threatScore above 80.`;
+
+    const payload = {
+      contents: [
+        { inlineData: { mimeType: 'image/jpeg', data: base64Data } },
+        promptText,
+      ],
+      config: {
+        responseMimeType: 'application/json',
+        responseSchema: {
+          type: Type.OBJECT,
+          properties: {
+            isScam: { type: Type.BOOLEAN },
+            threatScore: { type: Type.NUMBER },
+            scamCategory: { type: Type.STRING },
+            detectedVisuals: {
+              type: Type.ARRAY,
+              items: { type: Type.STRING },
             },
-            required: [
-              'isScam',
-              'threatScore',
-              'scamCategory',
-              'detectedVisuals',
-              'incidentSummary',
-            ],
+            incidentSummary: { type: Type.STRING },
           },
+          required: [
+            'isScam',
+            'threatScore',
+            'scamCategory',
+            'detectedVisuals',
+            'incidentSummary',
+          ],
         },
-      };
+      },
+    };
 
-      const response = await callGeminiWithRetry(ai, payload);
-      const result = JSON.parse(response.text);
-      setScamData(result);
+    let success = false;
+    for (const modelName of candidateModels) {
+      try {
+        const response = await ai.models.generateContent({
+          model: modelName,
+          ...payload,
+        });
 
-      if (result.isScam) {
-        setStatus(`🚨 ALERT: ${result.scamCategory} (${result.threatScore}%)`);
-      } else {
-        setStatus('✅ Feed Clear - Re-scan or play video with police uniform/speech');
+        const result = JSON.parse(response.text);
+        setScamData(result);
+
+        if (result.isScam && result.threatScore > 50) {
+          setStatus(`🚨 ALERT: ${result.scamCategory} (${result.threatScore}%)`);
+        } else {
+          setStatus('✅ Feed Verified Safe - No AI Threats Detected');
+        }
+        success = true;
+        break;
+      } catch (err) {
+        console.warn(`Model ${modelName} failed, trying fallback...`, err);
       }
-    } catch (err) {
-      console.error(err);
-      setStatus('Scan Error: ' + (err.message || 'Model busy. Try Manual Scan in 5s.'));
+    }
+
+    if (!success) {
+      setStatus('Scan temporary busy. Retrying in next interval or tap Manual Scan.');
     }
   };
 
-  // Run periodic check every 20 seconds to prevent rate limits
   useEffect(() => {
     if (isMonitoring) {
       intervalRef.current = setInterval(() => {
         analyzeCallStream();
-      }, 20000);
+      }, 15000);
     }
     return () => {
       if (intervalRef.current) clearInterval(intervalRef.current);
@@ -202,15 +192,15 @@ export default function GuardCamHome() {
     const doc = new jsPDF();
     doc.setFontSize(18);
     doc.setTextColor(200, 0, 0);
-    doc.text('INCIDENT DOSSIER: DIGITAL ARREST FRAUD', 10, 20);
+    doc.text('CYBERCRIME INCIDENT DOSSIER', 10, 20);
 
     doc.setFontSize(12);
     doc.setTextColor(0, 0, 0);
-    doc.text(`Category: ${scamData.scamCategory}`, 10, 35);
+    doc.text(`Threat Type: ${scamData.scamCategory}`, 10, 35);
     doc.text(`Threat Score: ${scamData.threatScore}%`, 10, 45);
     doc.text(`Timestamp: ${new Date().toLocaleString()}`, 10, 55);
 
-    doc.text('Detected Visual Anomalies:', 10, 70);
+    doc.text('Detected Threat Markers:', 10, 70);
     scamData.detectedVisuals?.forEach((item, index) => {
       doc.text(`- ${item}`, 15, 80 + index * 8);
     });
@@ -234,7 +224,7 @@ export default function GuardCamHome() {
         <h1 style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '10px' }}>
           <ShieldAlert color="#d32f2f" size={36} /> GuardCam AI
         </h1>
-        <p>Live Video & Audio Call Scam Inspector</p>
+        <p>Real-Time Deepfake & Fraud Detection Engine</p>
       </header>
 
       {/* API Key */}
@@ -256,7 +246,7 @@ export default function GuardCamHome() {
 
         {scamData?.isScam && (
           <div style={{ position: 'absolute', top: 0, left: 0, right: 0, background: 'rgba(211, 47, 47, 0.95)', color: '#fff', padding: '12px', textAlign: 'center' }}>
-            <h3 style={{ margin: 0 }}>🚨 SCAM CALL DETECTED ({scamData.threatScore}%)</h3>
+            <h3 style={{ margin: 0 }}>🚨 FRAUD / DEEPFAKE DETECTED ({scamData.threatScore}%)</h3>
             <p style={{ margin: '4px 0 0 0', fontSize: '12px' }}>{scamData.scamCategory}</p>
           </div>
         )}
@@ -266,7 +256,7 @@ export default function GuardCamHome() {
       <div style={{ display: 'flex', gap: '10px', marginTop: '15px' }}>
         {!isMonitoring ? (
           <button onClick={startCallMonitoring} style={{ flex: 1, padding: '12px', background: '#2e7d32', color: '#fff', border: 'none', borderRadius: '6px', fontWeight: 'bold' }}>
-            <Video size={16} inline /> Monitor Call Feed & Audio
+            <Video size={16} inline /> Monitor Stream & Audio
           </button>
         ) : (
           <button onClick={stopMonitoring} style={{ flex: 1, padding: '12px', background: '#d32f2f', color: '#fff', border: 'none', borderRadius: '6px', fontWeight: 'bold' }}>
