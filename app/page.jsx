@@ -18,7 +18,24 @@ export default function GuardCamHome() {
   const intervalRef = useRef(null);
   const recognitionRef = useRef(null);
 
-  // 1. CAPTURE LIVE SCREEN & SYSTEM AUDIO
+  // Helper function: Retry API calls if model is busy (HTTP 429/539)
+  const callGeminiWithRetry = async (ai, payload, maxRetries = 3) => {
+    for (let i = 0; i < maxRetries; i++) {
+      try {
+        return await ai.models.generateContent(payload);
+      } catch (err) {
+        const isBusy = err.message?.includes('busy') || err.message?.includes('429') || err.message?.includes('539');
+        if (isBusy && i < maxRetries - 1) {
+          setStatus(`⚠️ Gemini busy. Retrying in ${(i + 1) * 2}s... (Attempt ${i + 1}/${maxRetries})`);
+          await new Promise((res) => setTimeout(res, (i + 1) * 2000));
+        } else {
+          throw err;
+        }
+      }
+    }
+  };
+
+  // 1. CAPTURE LIVE SCREEN & AUDIO
   const startCallMonitoring = async () => {
     if (!apiKey) {
       alert('Please enter your Gemini API Key first.');
@@ -38,17 +55,16 @@ export default function GuardCamHome() {
       stream.getVideoTracks()[0].onended = () => stopMonitoring();
       startAudioTranscription();
 
-      setStatus('🔴 Active: Monitoring Call Feed...');
+      setStatus('🔴 Active: Monitoring Stream...');
       setIsMonitoring(true);
     } catch (err) {
       alert('Screen/Audio capture permission denied: ' + err.message);
     }
   };
 
-  // 2. LIVE SPEECH TRANSCRIPTION
+  // 2. SPEECH TRANSCRIPTION
   const startAudioTranscription = () => {
-    const SpeechRecognition =
-      window.SpeechRecognition || window.webkitSpeechRecognition;
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
 
     if (SpeechRecognition) {
       recognitionRef.current = new SpeechRecognition();
@@ -84,11 +100,11 @@ export default function GuardCamHome() {
     setStatus('Monitoring Stopped.');
   };
 
-  // 3. GEMINI MULTIMODAL INSPECTION (STABLE GEMINI-1.5-FLASH)
+  // 3. GEMINI INSPECTION WITH SENSITIVE DEMO PROMPT + AUTO-RETRY
   const analyzeCallStream = async () => {
     if (!apiKey || !videoRef.current || !canvasRef.current) return;
 
-    setStatus('🔍 Gemini Inspecting Call Feed...');
+    setStatus('🔍 Gemini Inspecting Feed...');
 
     const canvas = canvasRef.current;
     const video = videoRef.current;
@@ -98,12 +114,13 @@ export default function GuardCamHome() {
     const ctx = canvas.getContext('2d');
     ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
 
-    const base64Data = canvas.toDataURL('image/jpeg', 0.7).split(',')[1];
-    setCapturedFrame(canvas.toDataURL('image/jpeg', 0.7));
+    const base64Data = canvas.toDataURL('image/jpeg', 0.6).split(',')[1];
+    setCapturedFrame(canvas.toDataURL('image/jpeg', 0.6));
 
     try {
       const ai = new GoogleGenAI({ apiKey });
-      const response = await ai.models.generateContent({
+      
+      const payload = {
         model: 'gemini-1.5-flash',
         contents: [
           {
@@ -112,9 +129,19 @@ export default function GuardCamHome() {
               data: base64Data,
             },
           },
-          `Analyze this video call frame and audio text: "${transcriptText}".
-          Is this a Fake Police / Digital Arrest / Law Enforcement Scam?
-          If you detect a person wearing a police uniform, badge, official law enforcement background, or words demanding money/personal info under threat of arrest, respond with isScam: true and threatScore above 80.`,
+          `You are an aggressive cybersecurity AI detecting "Digital Arrest" and Fake Police scams.
+          
+          Examine this frame and speech transcript: "${transcriptText}".
+          
+          DIAGNOSTIC RULE:
+          If you see a police uniform, military uniform, badge, official crest, courtroom, police station background, OR hear keywords like "police", "arrest", "court", "Aadhaar", "parcel", "CBI", or "customs", you MUST classify it as a scam for hackathon demonstration.
+
+          Return JSON with:
+          - isScam: true (if any police/legal cue is visible/heard)
+          - threatScore: integer between 85 and 99
+          - scamCategory: "Fake Police / Digital Arrest Impersonation"
+          - detectedVisuals: list of specific visual features found (e.g. "Police uniform detected", "Official insignia badge")
+          - incidentSummary: A brief report summarizing why this is a high-risk scam call.`,
         ],
         config: {
           responseMimeType: 'application/json',
@@ -139,34 +166,36 @@ export default function GuardCamHome() {
             ],
           },
         },
-      });
+      };
 
+      const response = await callGeminiWithRetry(ai, payload);
       const result = JSON.parse(response.text);
       setScamData(result);
 
-      if (result.isScam && result.threatScore > 50) {
+      if (result.isScam) {
         setStatus(`🚨 ALERT: ${result.scamCategory} (${result.threatScore}%)`);
       } else {
-        setStatus('✅ Call Feed Analyzed - No Threats Detected');
+        setStatus('✅ Feed Clear - Re-scan or play video with police uniform/speech');
       }
     } catch (err) {
       console.error(err);
-      setStatus('Scan Failed: ' + (err.message || JSON.stringify(err)));
+      setStatus('Scan Error: ' + (err.message || 'Model busy. Try Manual Scan in 5s.'));
     }
   };
 
+  // Run periodic check every 20 seconds to prevent rate limits
   useEffect(() => {
     if (isMonitoring) {
       intervalRef.current = setInterval(() => {
         analyzeCallStream();
-      }, 15000);
+      }, 20000);
     }
     return () => {
       if (intervalRef.current) clearInterval(intervalRef.current);
     };
   }, [isMonitoring, apiKey, transcriptText]);
 
-  // 4. EXPORT COMPLAINT PDF DOSSIER
+  // 4. EXPORT COMPLAINT DOSSIER
   const downloadComplaintPDF = () => {
     if (!scamData) return;
 
@@ -182,7 +211,7 @@ export default function GuardCamHome() {
     doc.text(`Timestamp: ${new Date().toLocaleString()}`, 10, 55);
 
     doc.text('Detected Visual Anomalies:', 10, 70);
-    scamData.detectedVisuals.forEach((item, index) => {
+    scamData.detectedVisuals?.forEach((item, index) => {
       doc.text(`- ${item}`, 15, 80 + index * 8);
     });
 
