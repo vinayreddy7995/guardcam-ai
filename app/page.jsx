@@ -18,7 +18,7 @@ export default function GuardCamHome() {
   const intervalRef = useRef(null);
   const recognitionRef = useRef(null);
 
-  // 1. CAPTURE LIVE WHATSAPP/ZOOM/YOUTUBE SCREEN & SYSTEM AUDIO
+  // 1. CAPTURE LIVE SCREEN & SYSTEM AUDIO
   const startCallMonitoring = async () => {
     if (!apiKey) {
       alert('Please enter your Gemini API Key first.');
@@ -26,7 +26,6 @@ export default function GuardCamHome() {
     }
 
     try {
-      // Captures live browser tab / screen + system audio
       const stream = await navigator.mediaDevices.getDisplayMedia({
         video: { displaySurface: 'browser' },
         audio: { suppressLocalAudioPlayback: false, systemAudio: 'include' },
@@ -36,13 +35,10 @@ export default function GuardCamHome() {
         videoRef.current.srcObject = stream;
       }
 
-      // Handle user stopping screen share manually
       stream.getVideoTracks()[0].onended = () => stopMonitoring();
-
-      // Start Web Speech API to capture live call speech
       startAudioTranscription();
 
-      setStatus('🔴 Active: Monitoring Video & Audio Streams...');
+      setStatus('🔴 Active: Monitoring Call Feed...');
       setIsMonitoring(true);
     } catch (err) {
       alert('Screen/Audio capture permission denied: ' + err.message);
@@ -70,7 +66,7 @@ export default function GuardCamHome() {
       try {
         recognitionRef.current.start();
       } catch (e) {
-        console.log('Speech rec already active');
+        console.log('Speech rec active');
       }
     }
   };
@@ -88,11 +84,11 @@ export default function GuardCamHome() {
     setStatus('Monitoring Stopped.');
   };
 
-  // 3. GEMINI MULTIMODAL INSPECTION (GEMINI-2.5-FLASH-LITE FOR RATE LIMIT PROTECTION)
+  // 3. GEMINI MULTIMODAL INSPECTION (STABLE GEMINI-1.5-FLASH)
   const analyzeCallStream = async () => {
     if (!apiKey || !videoRef.current || !canvasRef.current) return;
 
-    setStatus('🔍 Gemini Inspecting Call Feed & Audio...');
+    setStatus('🔍 Gemini Inspecting Call Feed...');
 
     const canvas = canvasRef.current;
     const video = videoRef.current;
@@ -108,7 +104,7 @@ export default function GuardCamHome() {
     try {
       const ai = new GoogleGenAI({ apiKey });
       const response = await ai.models.generateContent({
-        model: 'gemini-2.5-flash-lite', // Switch to flash-lite for higher quota allowance
+        model: 'gemini-1.5-flash',
         contents: [
           {
             inlineData: {
@@ -116,9 +112,9 @@ export default function GuardCamHome() {
               data: base64Data,
             },
           },
-          `Analyze this video call snapshot and speech transcript: "${transcriptText}".
-          Determine if this indicates a Fake Police / Digital Arrest / Vishing Fraud call.
-          If you see a police uniform, badge, official authority backdrop, or detect words like "digital arrest", "police station", "verify Aadhaar", "drug parcel", or money demands, treat it as high risk (isScam: true, threatScore: 85+).`,
+          `Analyze this video call frame and audio text: "${transcriptText}".
+          Is this a Fake Police / Digital Arrest / Law Enforcement Scam?
+          If you detect a person wearing a police uniform, badge, official law enforcement background, or words demanding money/personal info under threat of arrest, respond with isScam: true and threatScore above 80.`,
         ],
         config: {
           responseMimeType: 'application/json',
@@ -151,15 +147,14 @@ export default function GuardCamHome() {
       if (result.isScam && result.threatScore > 50) {
         setStatus(`🚨 ALERT: ${result.scamCategory} (${result.threatScore}%)`);
       } else {
-        setStatus('✅ Call Feed Verified Safe');
+        setStatus('✅ Call Feed Analyzed - No Threats Detected');
       }
     } catch (err) {
       console.error(err);
-      setStatus('Analysis failed: ' + err.message);
+      setStatus('Scan Failed: ' + (err.message || JSON.stringify(err)));
     }
   };
 
-  // Run periodic loop every 15 seconds to remain safely within the Free Tier RPM limits
   useEffect(() => {
     if (isMonitoring) {
       intervalRef.current = setInterval(() => {
@@ -225,7 +220,7 @@ export default function GuardCamHome() {
         />
       </div>
 
-      {/* Screen Viewport */}
+      {/* Viewport */}
       <div style={{ position: 'relative', width: '100%', height: '320px', background: '#000', borderRadius: '12px', overflow: 'hidden' }}>
         <video ref={videoRef} autoPlay playsInline muted style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
         <canvas ref={canvasRef} style={{ display: 'none' }} />
@@ -261,7 +256,7 @@ export default function GuardCamHome() {
         </div>
       )}
 
-      {/* Status */}
+      {/* Status Bar */}
       <div style={{ marginTop: '10px', padding: '10px', background: '#eee', borderRadius: '6px', fontSize: '13px' }}>
         <strong>Status:</strong> {status}
       </div>
