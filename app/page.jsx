@@ -88,7 +88,7 @@ export default function GuardCamHome() {
     setStatus('Monitoring Stopped.');
   };
 
-  // 3. GEMINI MULTIMODAL INSPECTION (FIXED TO GEMINI-2.0-FLASH)
+  // 3. GEMINI MULTIMODAL INSPECTION (USING GEMINI-3.6-FLASH)
   const analyzeCallStream = async () => {
     if (!apiKey || !videoRef.current || !canvasRef.current) return;
 
@@ -108,7 +108,7 @@ export default function GuardCamHome() {
     try {
       const ai = new GoogleGenAI({ apiKey });
       const response = await ai.models.generateContent({
-        model: 'gemini-2.0-flash', // Updated to supported model name
+        model: 'gemini-3.6-flash', // Updated model string
         contents: [
           {
             inlineData: {
